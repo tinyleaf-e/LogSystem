@@ -5,6 +5,8 @@ import (
 	"strings"
 	"net"
 	"regexp"
+	"fmt"
+	"encoding/json"
 )
 
 func ClientIP(r *http.Request) string {
@@ -36,4 +38,22 @@ func camel2underline(str string)string{
 	re, _ := regexp.Compile("[A-Z]")
 	return re.ReplaceAllStringFunc(str, f)
 
+}
+
+func responseBuilder(w *http.ResponseWriter,state int,rel interface{}){
+
+	(*w).Header().Set("Content-Type", "application/json")
+	(*w).Header().Set("Access-Control-Allow-Origin", "*")
+	(*w).Header().Set("Access-Control-Allow-Credentials", "false")
+	(*w).Header().Add("Access-Control-Allow-Headers", "Content-Type")
+	(*w).WriteHeader(state)
+
+	dataMap:=make(map[string]interface{})
+	if(state>=200&&state<300){
+		dataMap["data"]=rel
+	}else {
+		dataMap["msg"]=fmt.Sprintf("%s", rel)
+	}
+	j,_:=json.Marshal(dataMap)
+	fmt.Fprint(*w,string(j))
 }

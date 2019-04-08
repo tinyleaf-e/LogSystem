@@ -28,19 +28,15 @@ func Add(w http.ResponseWriter,r *http.Request){
 }
 
 func getUserById(w http.ResponseWriter,r *http.Request) {
-	PreprocessXHR(&w)
+	if(!Auth(&w,r)){ return }
+
 	id := mux.Vars(r)["id"]
 	user,err:=getUser(id)
-	dataMap:=make(map[string]interface{})
 	if(err!=nil){
-		dataMap["status"] = "error"
-		dataMap["rel"] = fmt.Sprintf("%s", err)
+		responseBuilder(&w,http.StatusInternalServerError,err)
 	}else{
-		dataMap["status"] = "ok"
-		dataMap["rel"] = user
+		responseBuilder(&w,http.StatusOK,user)
 	}
-	j,_:=json.Marshal(dataMap)
-	fmt.Fprint(w,string(j))
 }
 
 func listAllUser(w http.ResponseWriter,r *http.Request) {
