@@ -17,14 +17,30 @@ func Add(w http.ResponseWriter,r *http.Request){
 	PreprocessXHR(&w)
 	r.ParseMultipartForm(32 << 20)
 	userid := r.MultipartForm.Value["userId"][0]
-	passwd:=r.MultipartForm.Value["passwd"][0]
-	role:=r.MultipartForm.Value["role"][0]
-	rel := addAuthInfo(userid,passwd,role)
-	dataMap:=make(map[string]interface{})
-	dataMap["status"] = "ok"
-	dataMap["rel"] = rel
-	j,_:=json.Marshal(dataMap)
-	fmt.Fprint(w,string(j))
+	fmt.Println(userid)
+}
+
+
+func getToken(w http.ResponseWriter,r *http.Request) {
+
+	id:=r.FormValue("id")
+	passwd:=r.FormValue("passwd")
+	user,err:=getUser(id)
+	if(err!=nil){
+		responseBuilder(&w,http.StatusInternalServerError,err)
+	}else{
+		if(user.Passwd==passwd){
+			token,err:=addAuthInfo(id,passwd)
+			if(err!=nil){
+				responseBuilder(&w,http.StatusInternalServerError,err)
+
+			}else{
+				responseBuilder(&w,http.StatusOK,token)
+			}
+		}else{
+			responseBuilder(&w,http.StatusUnauthorized,"用户名或密码错误")
+		}
+	}
 }
 
 func getUserById(w http.ResponseWriter,r *http.Request) {
@@ -40,6 +56,7 @@ func getUserById(w http.ResponseWriter,r *http.Request) {
 }
 
 func listAllUser(w http.ResponseWriter,r *http.Request) {
+	if(!Auth(&w,r)){ return }
 	PreprocessXHR(&w)
 	user,err:=getAllUsers()
 	dataMap:=make(map[string]interface{})
@@ -56,6 +73,7 @@ func listAllUser(w http.ResponseWriter,r *http.Request) {
 
 
 func deleteUserById(w http.ResponseWriter,r *http.Request) {
+	if(!Auth(&w,r)){ return }
 	PreprocessXHR(&w)
 	id := mux.Vars(r)["id"]
 	ids:=strings.Split(id,",")//TODO 还要删该用户下的一系列东西
@@ -74,6 +92,7 @@ func deleteUserById(w http.ResponseWriter,r *http.Request) {
 
 
 func updateUserById(w http.ResponseWriter,r *http.Request) {
+	if(!Auth(&w,r)){ return }
 	PreprocessXHR(&w)
 	dataMap:=make(map[string]interface{})
 	id := mux.Vars(r)["id"]
@@ -117,6 +136,7 @@ func updateUserById(w http.ResponseWriter,r *http.Request) {
 	fmt.Fprint(w,string(j))
 }
 func addUserdbdb(w http.ResponseWriter,r *http.Request) {
+	if(!Auth(&w,r)){ return }
 	PreprocessXHR(&w)
 	userid := r.FormValue("userId")
 	name:=r.FormValue("name")
@@ -141,6 +161,7 @@ func addUserdbdb(w http.ResponseWriter,r *http.Request) {
 //Project
 
 func getProjectById(w http.ResponseWriter,r *http.Request) {
+	if(!Auth(&w,r)){ return }
 	PreprocessXHR(&w)
 	id := mux.Vars(r)["id"]
 	project,err:=getProject(id)
@@ -157,6 +178,7 @@ func getProjectById(w http.ResponseWriter,r *http.Request) {
 }
 
 func getProjectsByUserIddbdb(w http.ResponseWriter,r *http.Request) {
+	if(!Auth(&w,r)){ return }
 	PreprocessXHR(&w)
 	userId:=r.FormValue("userId")
 	projects,err:=getProjectsByUserId(userId)
@@ -174,6 +196,7 @@ func getProjectsByUserIddbdb(w http.ResponseWriter,r *http.Request) {
 
 
 func deleteProjectById(w http.ResponseWriter,r *http.Request) {
+	if(!Auth(&w,r)){ return }
 	PreprocessXHR(&w)
 	id := mux.Vars(r)["id"]
 	ids:=strings.Split(id,",")
@@ -192,6 +215,7 @@ func deleteProjectById(w http.ResponseWriter,r *http.Request) {
 
 
 func updateProjectById(w http.ResponseWriter,r *http.Request) {
+	if(!Auth(&w,r)){ return }
 	PreprocessXHR(&w)
 	dataMap:=make(map[string]interface{})
 	id := mux.Vars(r)["id"]
@@ -199,11 +223,25 @@ func updateProjectById(w http.ResponseWriter,r *http.Request) {
 	if err==nil{
 		name:=r.FormValue("name")
 		if name!=""{
+
+			projects,_:=getProjectsByUserId(project.UserId)
+			for _,i:=range projects{
+				if(name==i.Name){
+					responseBuilder(&w,http.StatusBadRequest,"该项目名称已存在")
+					return
+				}
+			}
+
 			project.Name = name
 		}
 		desc:=r.FormValue("desc")
 		if desc!=""{
 			project.Desc = desc
+		}
+		ticket:=r.FormValue("ticket")
+		if ticket=="refresh"{
+			uid,_:=uuid.NewV4()
+			project.Ticket = uid.String()
 		}
 		rel,err:=updateProject(project)
 		if(err!=nil){
@@ -223,34 +261,21 @@ func updateProjectById(w http.ResponseWriter,r *http.Request) {
 	fmt.Fprint(w,string(j))
 }
 
-func refreshProjectTicketById(w http.ResponseWriter,r *http.Request) {
-	PreprocessXHR(&w)
-	dataMap:=make(map[string]interface{})
-	id := mux.Vars(r)["id"]
-	ticket,_:=uuid.NewV4()
-	project,err:=getProject(id)
-	if err==nil{
-		project.Ticket=ticket.String()
-		rel,err:=updateProject(project)
-		if(err!=nil){
-			dataMap["status"] = "error"
-			dataMap["rel"] = fmt.Sprintf("%s", err)
-		}else{
-			dataMap["status"] = "ok"
-			dataMap["rel"] = fmt.Sprintf("%s", rel)
-		}
-
-	}else{
-		dataMap["status"] = "error"
-		dataMap["rel"] = fmt.Sprintf("%s", err)
-
-	}
-}
 func addProjectdbdb(w http.ResponseWriter,r *http.Request) {
+	if(!Auth(&w,r)){ return }
 	PreprocessXHR(&w)
 	id,_:=uuid.NewV4()
 	userid := r.FormValue("userId")
 	name:=r.FormValue("name")
+
+	projects,_:=getProjectsByUserId(userid)
+	for _,i:=range projects{
+		if(name==i.Name){
+			responseBuilder(&w,http.StatusBadRequest,"该项目名称已存在")
+			return
+		}
+	}
+
 	desc:=r.FormValue("desc")
 	ticktet,_:=uuid.NewV4()
 	project:=Project{id.String(),name,userid,ticktet.String(),time.Now(),desc}
@@ -271,6 +296,7 @@ func addProjectdbdb(w http.ResponseWriter,r *http.Request) {
 //Format
 
 func getFormatById(w http.ResponseWriter,r *http.Request) {
+	if(!Auth(&w,r)){ return }
 	PreprocessXHR(&w)
 	id := mux.Vars(r)["id"]
 	format,err:=getFormat(id)
@@ -287,6 +313,7 @@ func getFormatById(w http.ResponseWriter,r *http.Request) {
 }
 
 func getFormatsByProjectIddbdb(w http.ResponseWriter,r *http.Request) {
+	if(!Auth(&w,r)){ return }
 	PreprocessXHR(&w)
 	projectId:=r.FormValue("projectId")
 	formats,err:=getFormatsByProjectId(projectId)
@@ -304,6 +331,7 @@ func getFormatsByProjectIddbdb(w http.ResponseWriter,r *http.Request) {
 
 
 func deleteFormatById(w http.ResponseWriter,r *http.Request) {
+	if(!Auth(&w,r)){ return }
 	PreprocessXHR(&w)
 	id := mux.Vars(r)["id"]
 	ids:=strings.Split(id,",")
@@ -322,6 +350,7 @@ func deleteFormatById(w http.ResponseWriter,r *http.Request) {
 
 
 func updateFormatById(w http.ResponseWriter,r *http.Request) {
+	if(!Auth(&w,r)){ return }
 	PreprocessXHR(&w)
 	dataMap:=make(map[string]interface{})
 	id := mux.Vars(r)["id"]
@@ -329,6 +358,16 @@ func updateFormatById(w http.ResponseWriter,r *http.Request) {
 	if err==nil{
 		name:=r.FormValue("name")
 		if name!=""{
+
+
+			formats,_:=getFormatsByProjectId(format.ProjectId)
+			for _,i:=range formats{
+				if(name==i.Name){
+					responseBuilder(&w,http.StatusBadRequest,"同一项目下不能有相同的格式ID")
+					return
+				}
+			}
+
 			format.Name = name
 		}
 		desc:=r.FormValue("desc")
@@ -354,6 +393,7 @@ func updateFormatById(w http.ResponseWriter,r *http.Request) {
 }
 
 func addFormatdbdb(w http.ResponseWriter,r *http.Request) {
+	if(!Auth(&w,r)){ return }
 	PreprocessXHR(&w)
 	dataMap:=make(map[string]interface{})
 
@@ -369,6 +409,15 @@ func addFormatdbdb(w http.ResponseWriter,r *http.Request) {
 		desc,_:=bodyJson.Get("desc").String()
 		projectId,_:=bodyJson.Get("projectId").String()
 
+
+		formats,_:=getFormatsByProjectId(projectId)
+		for _,i:=range formats{
+			if(name==i.Name){
+				responseBuilder(&w,http.StatusBadRequest,"同一项目下不能有相同的格式ID")
+				return
+			}
+		}
+
 		id,_:=uuid.NewV4()
 		format:=Format{id.String(),name,projectId,time.Now(),desc}
 		rel,err:=addFormat(format)
@@ -377,6 +426,19 @@ func addFormatdbdb(w http.ResponseWriter,r *http.Request) {
 			dataMap["rel"] = err
 		}else{
 			hasError :=false
+
+
+			for _,i1:=range item{
+				itemData1, _ := i1.(map[string]interface{})
+				for _,i2:=range item{
+					itemData2, _ := i2.(map[string]interface{})
+					if(itemData1["name"]==itemData2["name"]){
+						responseBuilder(&w,http.StatusBadRequest,"同一日志格式下不能有相同的字段名称")
+						return
+					}
+				}
+			}
+			
 			for index, i := range item {
 				//就在这里对di进行类型判断
 				itemData, _ := i.(map[string]interface{})
@@ -411,6 +473,7 @@ func addFormatdbdb(w http.ResponseWriter,r *http.Request) {
 
 
 func getFormatItemByFormatIddbdb(w http.ResponseWriter,r *http.Request) {
+	if(!Auth(&w,r)){ return }
 	PreprocessXHR(&w)
 	formatId:=r.FormValue("formatId")
 	formatItems,err:=getFormatItemsByFormatId(formatId)
@@ -428,6 +491,7 @@ func getFormatItemByFormatIddbdb(w http.ResponseWriter,r *http.Request) {
 
 
 func deleteFormatItemById(w http.ResponseWriter,r *http.Request) {
+	if(!Auth(&w,r)){ return }
 	PreprocessXHR(&w)
 	id := mux.Vars(r)["id"]
 	ids:=strings.Split(id,",")
@@ -446,6 +510,7 @@ func deleteFormatItemById(w http.ResponseWriter,r *http.Request) {
 
 
 func updateFormatItemById(w http.ResponseWriter,r *http.Request) {
+	if(!Auth(&w,r)){ return }
 	PreprocessXHR(&w)
 	dataMap:=make(map[string]interface{})
 	id := mux.Vars(r)["id"]
@@ -453,6 +518,13 @@ func updateFormatItemById(w http.ResponseWriter,r *http.Request) {
 	if err==nil{
 		name:=r.FormValue("name")
 		if name!=""{
+			formatItems,_:=getFormatItemsByFormatId(formatItem.FormatId)
+			for _,i:=range formatItems{
+				if(name==i.Name){
+					responseBuilder(&w,http.StatusBadRequest,"同一日志格式下不能有相同的字段名称")
+					return
+				}
+			}
 			formatItem.Name=name
 		}
 		itemType:=r.FormValue("type")
@@ -490,16 +562,23 @@ func updateFormatItemById(w http.ResponseWriter,r *http.Request) {
 }
 
 func addFormatItemdbdb(w http.ResponseWriter,r *http.Request) {
+	if(!Auth(&w,r)){ return }
 	PreprocessXHR(&w)
 	id,_:=uuid.NewV4()
 	name:=r.FormValue("name")
 	formatId := r.FormValue("formatId")
-	order,_:=countFormatItemsByFormatId(formatId)
+	formatItems,_:=getFormatItemsByFormatId(formatId)
+	for _,i:=range formatItems{
+		if(name==i.Name){
+			responseBuilder(&w,http.StatusBadRequest,"同一日志格式下不能有相同的字段名称")
+			return
+		}
+	}
 	itemType:=r.FormValue("type")
 	desc:=r.FormValue("desc")
 	example:=r.FormValue("example")
 	editable:=r.FormValue("editable")
-	formatItem:=FormatItem{id.String(),name,formatId,order,itemType,desc,example,editable=="1"}
+	formatItem:=FormatItem{id.String(),name,formatId, len(formatItems),itemType,desc,example,editable=="1"}
 	rel,err:=addFormatItem(formatItem)
 	dataMap:=make(map[string]interface{})
 	if(err!=nil){
@@ -519,6 +598,7 @@ func addFormatItemdbdb(w http.ResponseWriter,r *http.Request) {
 
 
 func getLogByQuery(w http.ResponseWriter,r *http.Request) {
+	if(!Auth(&w,r)){ return }
 
 	PreprocessXHR(&w)
 	dataMap:=make(map[string]interface{})
@@ -717,6 +797,7 @@ func getLogByQuery(w http.ResponseWriter,r *http.Request) {
 
 
 func updateLogById(w http.ResponseWriter,r *http.Request) {
+	if(!Auth(&w,r)){ return }
 	PreprocessXHR(&w)
 	dataMap:=make(map[string]interface{})
 	id := mux.Vars(r)["id"]

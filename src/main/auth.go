@@ -5,28 +5,40 @@ import (
 	"fmt"
 	"github.com/gorilla/mux"
 	"net/http"
+	"github.com/satori/go.uuid"
 )
 
 var RedisConn redis.Conn
 
-func initRedis(){
-	RedisConn,_ =redis.Dial("tcp","localhost:6379")
+func initRedis(redisHost string){
+	RedisConn,_ =redis.Dial("tcp",redisHost)
 
 }
 
-func addAuthInfo(id string, passwd string, role string) string{
-	rel,err:=RedisConn.Do("HMSET",id,"passwd",passwd,"role",role)
-	if(err!=nil){
-		fmt.Println("redis connection error")
-		return err.Error()
+func addAuthInfo(id string, role string) (token string,err error){
+	currentToken,err:=redis.String(RedisConn.Do("GET",id))
+	if(err==nil){
+		exists,_:=RedisConn.Do("HEXISTS",currentToken,"id")
+		if(exists.(int64)>0){
+			token=currentToken
+			return
+		}
 	}
-	fmt.Println(rel)
-	return "success"
+
+	uid,_:=uuid.NewV4()
+	token=uid.String()
+	_,err=redis.String(RedisConn.Do("HMSET",token,"id",id,"role",role,"EX","7200"))
+	if(err==nil){
+		RedisConn.Do("EXPIRE",token,"7200")
+		RedisConn.Do("SET",id,token)
+		return
+	}
+	return
 }
 
 
 func checkAuthInfo(id string) int64{
-	rel,err:=RedisConn.Do("HEXISTS",id,"role")
+	rel,err:=RedisConn.Do("HEXISTS",id,"id")
 	if(err!=nil){
 		fmt.Println("redis connection error")
 		return -2
@@ -41,7 +53,7 @@ func getRoleFromAuthInfo(token string) (role string, e error){
 
 
 func getUserIdFromAuthInfo(token string) (id string, e error){
-	id,e= redis.String(RedisConn.Do("HGET",token,"userId"))
+	id,e= redis.String(RedisConn.Do("HGET",token,"id"))
 	return
 }
 
@@ -49,6 +61,10 @@ func getUserIdFromAuthInfo(token string) (id string, e error){
 func Auth(w *http.ResponseWriter,r *http.Request)(access bool) {
 	resource := mux.Vars(r)["resource"]
 	id := mux.Vars(r)["id"]
+	if(r.Header.Get("Authorization")==""){
+		responseBuilder(w,http.StatusUnauthorized,"未获取到用户权限信息")
+		return
+	}
 	token:=r.Header.Get("Authorization")[7:]
 	if(checkAuthInfo(token)<=0){
 		responseBuilder(w,http.StatusUnauthorized,"用户权限信息已过期")
@@ -131,7 +147,7 @@ func Auth(w *http.ResponseWriter,r *http.Request)(access bool) {
 		}else {
 			return false
 		}
-	case "format-item":
+	case "format-item"://TODO 往下还得详细讨论
 		if(role=="user"){
 			format,err:=getFormat(r.FormValue("formatId"))
 			if(err!=nil){
