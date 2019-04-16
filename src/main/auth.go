@@ -65,7 +65,7 @@ func Auth(w *http.ResponseWriter,r *http.Request)(access bool) {
 		responseBuilder(w,http.StatusUnauthorized,"未获取到用户权限信息")
 		return
 	}
-	token:=r.Header.Get("Authorization")[7:]
+	token:=r.Header.Get("Authorization")
 	if(checkAuthInfo(token)<=0){
 		responseBuilder(w,http.StatusUnauthorized,"用户权限信息已过期")
 		return false

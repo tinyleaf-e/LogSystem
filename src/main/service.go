@@ -3,6 +3,7 @@ package main
 import (
 	"github.com/gorilla/mux"
 	"net/http"
+	"fmt"
 )
 
 func Ping(w http.ResponseWriter, r *http.Request){
@@ -13,7 +14,7 @@ func PreprocessXHR(w *http.ResponseWriter) {
 	(*w).Header().Set("Content-Type", "application/json")
 	(*w).Header().Set("Access-Control-Allow-Origin", "*")
 	(*w).Header().Set("Access-Control-Allow-Credentials", "false")
-	(*w).Header().Add("Access-Control-Allow-Headers", "Content-Type")
+	(*w).Header().Add("Access-Control-Allow-Headers", "Authorization")
 }
 
 
@@ -24,6 +25,7 @@ func main(){
 	Conf.parse()
 	connStr,_ := Conf.get("connectionString")
 	redisHost,_ := Conf.get("redisHost")
+	port,_ := Conf.get("port")
 	DB,_ = connectDB(connStr)
 	initRedis(redisHost)
 	r := mux.NewRouter()
@@ -32,12 +34,14 @@ func main(){
 	//r.HandleFunc("/test",testbody).Methods("POST")
 	r.HandleFunc("/create",createTables).Methods("GET")
 	r.HandleFunc("/{resource}/{id}",getUserById).Methods("GET")
+	r.HandleFunc("/{resource:user}",Options).Methods("OPTIONS")
 	r.HandleFunc("/{resource:user}",listAllUser).Methods("GET")
 	r.HandleFunc("/{resource:user}",addUserdbdb).Methods("POST")
 	r.HandleFunc("/{resource:user}/{id}",updateUserById).Methods("POST")
 	r.HandleFunc("/{resource:user}/{id}",deleteUserById).Methods("DELETE")
 
 	r.HandleFunc("/{resource:project}/{id}",getProjectById).Methods("GET")
+	r.HandleFunc("/{resource:project}",Options).Methods("OPTIONS")
 	r.HandleFunc("/{resource:project}",getProjectsByUserIddbdb).Methods("GET")
 	r.HandleFunc("/{resource:project}",addProjectdbdb).Methods("POST")
 	r.HandleFunc("/{resource:project}/{id}",updateProjectById).Methods("POST")
@@ -61,5 +65,6 @@ func main(){
 	r.HandleFunc("/{resource:log}/{id}",updateLogById).Methods("POST")
 
 	http.Handle("/",r)
-	http.ListenAndServe("localhost:8011",nil)
+	fmt.Println("system started, listening on :"+port)
+	http.ListenAndServe(":"+port,nil)
 }

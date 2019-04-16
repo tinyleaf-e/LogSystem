@@ -21,6 +21,11 @@ func Add(w http.ResponseWriter,r *http.Request){
 }
 
 
+func Options(w http.ResponseWriter, r *http.Request) {
+	PreprocessXHR(&w)
+	w.Header().Set("Access-Control-Allow-Methods","GET,POST")
+}
+
 func getToken(w http.ResponseWriter,r *http.Request) {
 
 	id:=r.FormValue("id")
@@ -30,7 +35,7 @@ func getToken(w http.ResponseWriter,r *http.Request) {
 		responseBuilder(&w,http.StatusInternalServerError,err)
 	}else{
 		if(user.Passwd==passwd){
-			token,err:=addAuthInfo(id,passwd)
+			token,err:=addAuthInfo(id,user.Role)
 			if(err!=nil){
 				responseBuilder(&w,http.StatusInternalServerError,err)
 
@@ -56,6 +61,7 @@ func getUserById(w http.ResponseWriter,r *http.Request) {
 }
 
 func listAllUser(w http.ResponseWriter,r *http.Request) {
+	fmt.Println("get user...")
 	if(!Auth(&w,r)){ return }
 	PreprocessXHR(&w)
 	user,err:=getAllUsers()
@@ -568,17 +574,34 @@ func addFormatItemdbdb(w http.ResponseWriter,r *http.Request) {
 	name:=r.FormValue("name")
 	formatId := r.FormValue("formatId")
 	formatItems,_:=getFormatItemsByFormatId(formatId)
+
+	currentTypeCount:=make(map[string]int)
+	currentTypeCount["longString"]=0
+	currentTypeCount["shortString"]=0
+	currentTypeCount["int"]=0
+	currentTypeCount["bool"]=0
+
 	for _,i:=range formatItems{
 		if(name==i.Name){
 			responseBuilder(&w,http.StatusBadRequest,"同一日志格式下不能有相同的字段名称")
 			return
 		}
+		currentTypeCount[i.Type]++
 	}
+
 	itemType:=r.FormValue("type")
+	if(itemType!="longString"||itemType!="shortString"||itemType!="int"||itemType!="bool"){
+		responseBuilder(&w,http.StatusBadRequest,"日志格式不支持\""+itemType+"\"类型")
+		return
+	}
+	if(currentTypeCount["longString"]>=5||currentTypeCount["shortString"]>=10||currentTypeCount["int"]>=5||currentTypeCount["bool"]>=3){
+		responseBuilder(&w,http.StatusBadRequest,"日志格式的类型有数量限制")
+		return
+	}
 	desc:=r.FormValue("desc")
 	example:=r.FormValue("example")
 	editable:=r.FormValue("editable")
-	formatItem:=FormatItem{id.String(),name,formatId, len(formatItems),itemType,desc,example,editable=="1"}
+	formatItem:=FormatItem{id.String(),name,formatId, len(formatItems),itemType+string(currentTypeCount[itemType]),desc,example,editable=="1"}
 	rel,err:=addFormatItem(formatItem)
 	dataMap:=make(map[string]interface{})
 	if(err!=nil){
