@@ -23,10 +23,12 @@ func Add(w http.ResponseWriter,r *http.Request){
 
 func Options(w http.ResponseWriter, r *http.Request) {
 	PreprocessXHR(&w)
-	w.Header().Set("Access-Control-Allow-Methods","GET,POST")
+	w.Header().Set("Access-Control-Allow-Methods","GET,POST,DELETE")
 }
 
 func getToken(w http.ResponseWriter,r *http.Request) {
+	initRedis(RedisHost)
+	defer RedisConn.Close()
 
 	id:=r.FormValue("id")
 	passwd:=r.FormValue("passwd")
@@ -232,7 +234,7 @@ func updateProjectById(w http.ResponseWriter,r *http.Request) {
 
 			projects,_:=getProjectsByUserId(project.UserId)
 			for _,i:=range projects{
-				if(name==i.Name){
+				if(name==i.Name&&id!=i.Id){
 					responseBuilder(&w,http.StatusBadRequest,"该项目名称已存在")
 					return
 				}
@@ -314,6 +316,35 @@ func getFormatById(w http.ResponseWriter,r *http.Request) {
 		dataMap["status"] = "ok"
 		dataMap["rel"] = format
 	}
+	//link
+	linkMap:=make(map[string]interface{})
+	project,errOfProject:=getProject(format.ProjectId)
+	if(errOfProject==nil){
+		projectMap:=make(map[string]string)
+		projectMap["status"]="ok"
+		projectMap["name"]=project.Name
+		projectMap["id"]=project.Id
+		linkMap["project"]=projectMap
+		project,errOfProject:=getProject(format.ProjectId)
+		if(errOfProject==nil){
+			projectMap:=make(map[string]string)
+			projectMap["status"]="ok"
+			projectMap["name"]=project.Name
+			projectMap["id"]=project.Id
+			linkMap["project"]=projectMap
+		}else{
+			projectMap:=make(map[string]string)
+			projectMap["status"]="error"
+			projectMap["msg"]=errOfProject.Error()
+			linkMap["project"]=projectMap
+		}
+	}else{
+		projectMap:=make(map[string]string)
+		projectMap["status"]="error"
+		projectMap["msg"]=errOfProject.Error()
+		linkMap["project"]=projectMap
+	}
+	dataMap["link"]=linkMap
 	j,_:=json.Marshal(dataMap)
 	fmt.Fprint(w,string(j))
 }
@@ -368,7 +399,7 @@ func updateFormatById(w http.ResponseWriter,r *http.Request) {
 
 			formats,_:=getFormatsByProjectId(format.ProjectId)
 			for _,i:=range formats{
-				if(name==i.Name){
+				if(name==i.Name&&id!=i.Id){
 					responseBuilder(&w,http.StatusBadRequest,"同一项目下不能有相同的格式ID")
 					return
 				}
@@ -403,71 +434,31 @@ func addFormatdbdb(w http.ResponseWriter,r *http.Request) {
 	PreprocessXHR(&w)
 	dataMap:=make(map[string]interface{})
 
-	body, err := ioutil.ReadAll(r.Body)
-	if err != nil {
-		dataMap["status"] = "error"
-		dataMap["rel"] = "read body err"
-		return
-	}else{
-		bodyJson, _ := simplejson.NewJson([]byte(string(body)))
-		item, _ := bodyJson.Get("item").Array()
-		name,_:=bodyJson.Get("name").String()
-		desc,_:=bodyJson.Get("desc").String()
-		projectId,_:=bodyJson.Get("projectId").String()
+	name:=r.FormValue("name")
+	desc:=r.FormValue("desc")
+	projectId:=r.FormValue("projectId")
 
 
-		formats,_:=getFormatsByProjectId(projectId)
-		for _,i:=range formats{
-			if(name==i.Name){
-				responseBuilder(&w,http.StatusBadRequest,"同一项目下不能有相同的格式ID")
-				return
-			}
-		}
-
-		id,_:=uuid.NewV4()
-		format:=Format{id.String(),name,projectId,time.Now(),desc}
-		rel,err:=addFormat(format)
-		if(err!=nil){
-			dataMap["status"] = "error"
-			dataMap["rel"] = err
-		}else{
-			hasError :=false
-
-
-			for _,i1:=range item{
-				itemData1, _ := i1.(map[string]interface{})
-				for _,i2:=range item{
-					itemData2, _ := i2.(map[string]interface{})
-					if(itemData1["name"]==itemData2["name"]){
-						responseBuilder(&w,http.StatusBadRequest,"同一日志格式下不能有相同的字段名称")
-						return
-					}
-				}
-			}
-			
-			for index, i := range item {
-				//就在这里对di进行类型判断
-				itemData, _ := i.(map[string]interface{})
-				itemId,_:=uuid.NewV4()
-				formatItem:=FormatItem{itemId.String(),itemData["name"].(string),id.String(),index,itemData["type"].(string),itemData["desc"].(string),itemData["example"].(string),itemData["editable"].(bool)}
-				_,err:=addFormatItem(formatItem)
-				if(err!=nil){
-					hasError=true
-					dataMap["status"] = "error"
-					dataMap["rel"] = err
-					break
-				}
-			}
-			if(hasError){
-
-				dataMap["status"] = "error"
-				dataMap["rel"] = "error when create item"
-			}else {
-				dataMap["status"] = "ok"
-				dataMap["rel"] = rel
-			}
+	formats,_:=getFormatsByProjectId(projectId)
+	for _,i:=range formats{
+		if(name==i.Name){
+			responseBuilder(&w,http.StatusBadRequest,"同一项目下不能有相同的格式ID")
+			return
 		}
 	}
+
+	id,_:=uuid.NewV4()
+	format:=Format{id.String(),name,projectId,time.Now(),desc}
+	rel,err:=addFormat(format)
+	if(err!=nil){
+
+		dataMap["status"] = "error"
+		dataMap["msg"] = fmt.Sprintf("%s", err)
+	}else {
+		dataMap["status"] = "ok"
+		dataMap["rel"] = rel
+	}
+
 
 
 	j,_:=json.Marshal(dataMap)
@@ -526,7 +517,7 @@ func updateFormatItemById(w http.ResponseWriter,r *http.Request) {
 		if name!=""{
 			formatItems,_:=getFormatItemsByFormatId(formatItem.FormatId)
 			for _,i:=range formatItems{
-				if(name==i.Name){
+				if(name==i.Name&&id!=i.Id){
 					responseBuilder(&w,http.StatusBadRequest,"同一日志格式下不能有相同的字段名称")
 					return
 				}
@@ -576,24 +567,21 @@ func addFormatItemdbdb(w http.ResponseWriter,r *http.Request) {
 	formatItems,_:=getFormatItemsByFormatId(formatId)
 
 	currentTypeCount:=make(map[string]int)
-	currentTypeCount["longString"]=0
-	currentTypeCount["shortString"]=0
-	currentTypeCount["int"]=0
-	currentTypeCount["bool"]=0
 
 	for _,i:=range formatItems{
 		if(name==i.Name){
 			responseBuilder(&w,http.StatusBadRequest,"同一日志格式下不能有相同的字段名称")
 			return
 		}
-		currentTypeCount[i.Type]++
+		currentTypeCount[i.Type[:len(i.Type)-1]]++
 	}
 
 	itemType:=r.FormValue("type")
-	if(itemType!="longString"||itemType!="shortString"||itemType!="int"||itemType!="bool"){
+	if(itemType!="longString"&&itemType!="shortString"&&itemType!="int"&&itemType!="bool"){
 		responseBuilder(&w,http.StatusBadRequest,"日志格式不支持\""+itemType+"\"类型")
 		return
 	}
+	//TODO there are problems
 	if(currentTypeCount["longString"]>=5||currentTypeCount["shortString"]>=10||currentTypeCount["int"]>=5||currentTypeCount["bool"]>=3){
 		responseBuilder(&w,http.StatusBadRequest,"日志格式的类型有数量限制")
 		return
@@ -601,7 +589,7 @@ func addFormatItemdbdb(w http.ResponseWriter,r *http.Request) {
 	desc:=r.FormValue("desc")
 	example:=r.FormValue("example")
 	editable:=r.FormValue("editable")
-	formatItem:=FormatItem{id.String(),name,formatId, len(formatItems),itemType+string(currentTypeCount[itemType]),desc,example,editable=="1"}
+	formatItem:=FormatItem{id.String(),name,formatId, len(formatItems),itemType+strconv.Itoa(currentTypeCount[itemType]+1),desc,example,editable=="1"}
 	rel,err:=addFormatItem(formatItem)
 	dataMap:=make(map[string]interface{})
 	if(err!=nil){
@@ -621,7 +609,6 @@ func addFormatItemdbdb(w http.ResponseWriter,r *http.Request) {
 
 
 func getLogByQuery(w http.ResponseWriter,r *http.Request) {
-	if(!Auth(&w,r)){ return }
 
 	PreprocessXHR(&w)
 	dataMap:=make(map[string]interface{})
@@ -636,6 +623,10 @@ func getLogByQuery(w http.ResponseWriter,r *http.Request) {
 		queryItem, err := bodyJson.Get("query").Array()
 		formatId, err := bodyJson.Get("formatId").String()
 		//name,_:=bodyJson.Get("name").String()
+
+		//Auth
+		if(!AuthFormatId(&w,r,formatId)){return}
+
 
 		queryFormat :=[]string{}
 		var paraSlice []interface{}

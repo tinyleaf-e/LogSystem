@@ -1,21 +1,25 @@
 package main
 
 import (
-	"github.com/garyburd/redigo/redis"
 	"fmt"
+	"github.com/garyburd/redigo/redis"
 	"github.com/gorilla/mux"
-	"net/http"
 	"github.com/satori/go.uuid"
+	"net/http"
 )
 
 var RedisConn redis.Conn
 
 func initRedis(redisHost string){
-	RedisConn,_ =redis.Dial("tcp",redisHost)
+	var ee error
+	RedisConn,ee =redis.Dial("tcp",redisHost)
+	fmt.Println(ee)
 
 }
 
 func addAuthInfo(id string, role string) (token string,err error){
+	initRedis(RedisHost)
+	defer RedisConn.Close()
 	currentToken,err:=redis.String(RedisConn.Do("GET",id))
 	if(err==nil){
 		exists,_:=RedisConn.Do("HEXISTS",currentToken,"id")
@@ -38,6 +42,8 @@ func addAuthInfo(id string, role string) (token string,err error){
 
 
 func checkAuthInfo(id string) int64{
+	initRedis(RedisHost)
+	defer RedisConn.Close()
 	rel,err:=RedisConn.Do("HEXISTS",id,"id")
 	if(err!=nil){
 		fmt.Println("redis connection error")
@@ -47,12 +53,16 @@ func checkAuthInfo(id string) int64{
 }
 
 func getRoleFromAuthInfo(token string) (role string, e error){
+	initRedis(RedisHost)
+	defer RedisConn.Close()
 	role,e= redis.String(RedisConn.Do("HGET",token,"role"))
 	return
 }
 
 
 func getUserIdFromAuthInfo(token string) (id string, e error){
+	initRedis(RedisHost)
+	defer RedisConn.Close()
 	id,e= redis.String(RedisConn.Do("HGET",token,"id"))
 	return
 }
@@ -116,9 +126,10 @@ func Auth(w *http.ResponseWriter,r *http.Request)(access bool) {
 		}
 	case "format":
 		if(role=="user"){
+
 			if(r.FormValue("projectId")!=""){
 				project,err:=getProject(r.FormValue("projectId"))
-				if(err!=nil&&userId==project.UserId){
+				if(err==nil&&userId==project.UserId){
 					access = true
 				}else {
 					access = false
@@ -134,7 +145,7 @@ func Auth(w *http.ResponseWriter,r *http.Request)(access bool) {
 				}else
 				{
 					project,err:=getProject(format.ProjectId)
-					if(err!=nil&&userId==project.UserId){
+					if(err==nil&&userId==project.UserId){
 						access = true
 					}else {
 						access = false
@@ -149,12 +160,20 @@ func Auth(w *http.ResponseWriter,r *http.Request)(access bool) {
 		}
 	case "format-item"://TODO 往下还得详细讨论
 		if(role=="user"){
-			format,err:=getFormat(r.FormValue("formatId"))
+			formatId:=""
+			if(id!=""){
+				formatItem,_:=getFormatItem(id)
+				formatId=formatItem.FormatId
+			}else {
+				formatId=r.FormValue("formatId")
+			}
+			format,err:=getFormat(formatId)
+			//format,err=getFormat(r.PostFormValue("formatId"))
 			if(err!=nil){
 				access = false
 			}
 			project,err:=getProject(format.ProjectId)
-			if(err!=nil&&userId==project.UserId){
+			if(err==nil&&userId==project.UserId){
 				access = true
 			}else {
 				access = false
@@ -169,7 +188,7 @@ func Auth(w *http.ResponseWriter,r *http.Request)(access bool) {
 				access = false
 			}
 			project,err:=getProject(format.ProjectId)
-			if(err!=nil&&userId==project.UserId){
+			if(err==nil&&userId==project.UserId){
 				access = true
 			}else {
 				access = false
@@ -181,5 +200,35 @@ func Auth(w *http.ResponseWriter,r *http.Request)(access bool) {
 	if(!access){
 		responseBuilder(w,http.StatusUnauthorized,"权限不足，或未获取到权限信息")
 	}
+	return
+}
+
+func AuthFormatId(w *http.ResponseWriter,r *http.Request, formatId string) ( access bool) {
+	access=false;
+	if (r.Header.Get("Authorization") == "") {
+		responseBuilder(w, http.StatusUnauthorized, "未获取到用户权限信息")
+		return
+	}
+	token := r.Header.Get("Authorization")
+	if (checkAuthInfo(token) <= 0) {
+		responseBuilder(w, http.StatusUnauthorized, "用户权限信息已过期")
+		return
+	}
+	userId, err2 := getUserIdFromAuthInfo(token)
+	if (err2 != nil) {
+		responseBuilder(w, http.StatusUnauthorized, "用户权限信息已过期")
+		return
+	}
+	format, err := getFormat(formatId)
+	if (err != nil) {
+		responseBuilder(w, http.StatusBadGateway, err)
+		return
+	}
+	project, err := getProject(format.ProjectId)
+	if (err == nil && userId == project.UserId) {
+		access = true
+		return
+	}
+	responseBuilder(w, http.StatusUnauthorized, "用户权限信息已过期")
 	return
 }
